@@ -181,52 +181,6 @@ def setup_trainer(model, teacher_model, tokenizer, datasets, training_args, args
 
 def save_artifacts(trainer, model, tokenizer, save_dir, args):
     try:
-        model.eval()
-        model.config.use_cache = True
-        for param in model.parameters():
-            param.data = param.data.to(torch.bfloat16)
-        trainer.save_model(output_dir=save_dir)
-        logger.info(f"Model saved to {save_dir}")
-
-        tokenizer.save_pretrained(save_dir)
-        logger.info(f"Model and tokenizer saved to {save_dir}")
-
-    except Exception as save_err:
-        logger.error(f"Failed during final save/log: {save_err}", exc_info=True)
-
-
-def main():
-    args = get_args()
-    set_seed(args.seed)
-
-    save_dir = get_save_dir(args)
-
-    num_gpus, device_map = get_device_config()
-
-    logger.info("Loading tokenizer...")
-    tokenizer = load_tokenizer(args.model_id)
-
-    logger.info(f"Preparing training data ({args.dataset})...")
-    datasets = prepare_dataset(args, tokenizer)
-
-    logger.info("Loading student model...")
-    model = load_student_model(args, device_map, torch.bfloat16)
-
-    logger.info(f"Loading teacher model...")
-    teacher_model = load_teacher_model(args, num_gpus, torch.bfloat16)
-
-    training_args = get_training_arguments(args, save_dir)
-
-    logger.info(f"Setting trainer...")
-    trainer = setup_trainer(model, teacher_model, tokenizer, datasets, training_args, args)
-
-    trainer.train()
-
-    save_artifacts(trainer, model, tokenizer, save_dir, args)
-
-
-def save_artifacts(trainer, model, tokenizer, save_dir, args):
-    try:
         logger.info("Starting artifact saving process (Grouped Chunk Strategy)...")
 
         if hasattr(trainer, 'accelerator'):
