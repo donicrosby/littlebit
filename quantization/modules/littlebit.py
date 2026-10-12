@@ -181,6 +181,10 @@ class LittleBitLinear(nn.Module):
         W = self.weight.data.float() if self.do_train and self.weight is not None else None
 
         U, V, u1, u2, v1, v2 = self._decompose_matrix(W)
+        # FIX(dtype): decomposition runs in fp32; cast factors back to the layer's
+        # native dtype so forward() never mixes fp32 factors with bf16/fp16 activations.
+        _tdtype = self.weight.data.dtype if self.weight is not None else torch.float32
+        U, V, u1, u2, v1, v2 = (t.to(_tdtype) for t in (U, V, u1, u2, v1, v2))
 
         # Helper function to create parameters with consistent settings
         def create_param(tensor):
@@ -217,6 +221,7 @@ class LittleBitLinear(nn.Module):
                 del U_g, V_g, u1_g, u2_g, v1_g, v2_g, W_approx_g
 
             U_R, V_R, u1_R, u2_R, v1_R, v2_R = self._decompose_matrix(residual_W)
+            U_R, V_R, u1_R, u2_R, v1_R, v2_R = (t.to(_tdtype) for t in (U_R, V_R, u1_R, u2_R, v1_R, v2_R))
 
             # Initialize residual parameters
             self.U_R = create_param(U_R)
@@ -371,7 +376,7 @@ class LittleBitLinear(nn.Module):
         prefix = kwargs.get('prefix', '')
         state = super().state_dict(*args, **kwargs)
 
-        keys_to_remove = [k for k in state.keys() if k.startswith(prefix + 'U') or k.startswith(prefix + 'V')]
+        keys_to_remove = [k for k in state.keys() if k[len(prefix):].startswith(('U', 'V'))]
         for k in keys_to_remove:
             if k in state:
                 del state[k]
@@ -393,7 +398,7 @@ class LittleBitLinear(nn.Module):
 
     @property
     def split_dim_used(self):
-        return int(self._split_dim.item())
+        return int(self._split_dim_final.item())
 
     @property
     def total_bit_usage(self):

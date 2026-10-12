@@ -71,7 +71,7 @@ def get_args():
     parser.add_argument("--ds_config_path", type=str, default=None)
     parser.add_argument("--exp_name", type=str, default="LittleBit")
     parser.add_argument("--run_name", type=str, default="my_run")
-    parser.add_argument("--report", nargs="+", default=["wandb"], choices=["wandb", "tensorboard"])
+    parser.add_argument("--report", nargs="+", default=["tensorboard"], choices=["wandb", "tensorboard"])
     parser.add_argument("--quant_func", type=str, default="STEBinary")
     parser.add_argument("--quant_mod", type=str, default="LittleBitLinear")
 

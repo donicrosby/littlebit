@@ -13,8 +13,6 @@ import torch.nn as nn
 from safetensors import safe_open
 from transformers import AutoConfig, AutoModelForCausalLM
 
-from quantization.modules import LittleBitLinear
-
 __all__ = ['patch_inst', 'load_quantized_model', 'apply_littlebit_patch', 'get_quant_func_and_mod']
 
 
@@ -271,6 +269,8 @@ def load_quantized_model(model_path: str, quant_args, torch_dtype, device: str =
     """
     if not os.path.isdir(model_path):
         raise ValueError(f"Model path must be a directory: {model_path}")
+
+    from quantization.modules import LittleBitLinear  # local: breaks modules<->utils cycle
 
     print(f"INFO: Loading configuration from '{model_path}'...")
     config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
