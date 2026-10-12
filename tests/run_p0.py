@@ -65,9 +65,16 @@ check("eff_bit_matches_bytes", abs(bpw - lin._eff_bit_actual.item()) < 0.25,
       f"bpw from bytes {bpw:.3f} vs formula {lin._eff_bit_actual.item():.3f}")
 
 # ---------- toy LM config (transformers-5-safe) ----------
-from transformers import AutoModelForCausalLM, AutoConfig
+from transformers import AutoModelForCausalLM, Qwen3Config
 def make_tiny():
-    cfg = AutoConfig.from_pretrained("Qwen/Qwen3-0.6B-Base")
+    # HERMETIC: construct the config locally — no HF Hub fetch at test runtime
+    # (local-first CI rule; also kills the unauthenticated-rate-limit warning).
+    cfg = Qwen3Config(
+        vocab_size=1000, hidden_size=128, intermediate_size=256,
+        num_hidden_layers=2, num_attention_heads=4, num_key_value_heads=2,
+        head_dim=32, max_position_embeddings=512,
+        layer_types=["full_attention", "full_attention"],
+    )
     cfg.num_hidden_layers = 2
     cfg.hidden_size = 128
     cfg.num_attention_heads = 4
