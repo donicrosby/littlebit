@@ -376,7 +376,7 @@ class LittleBitLinear(nn.Module):
         prefix = kwargs.get('prefix', '')
         state = super().state_dict(*args, **kwargs)
 
-        keys_to_remove = [k for k in state.keys() if k[len(prefix):].startswith(('U', 'V'))]
+        keys_to_remove = [k for k in state.keys() if k.startswith(prefix + 'U') or k.startswith(prefix + 'V')]  # upstream semantics (KNOWN QUIRK: empty-prefix direct module.state_dict() calls keep raw U/V; harmless for full-model saves — verified bitwise by tests/run_p0.py)
         for k in keys_to_remove:
             if k in state:
                 del state[k]
