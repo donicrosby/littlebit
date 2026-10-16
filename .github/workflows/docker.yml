@@ -20,7 +20,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - run: pip install pytorch-optimizer
+      - name: Install app deps (same frozen pins the images use)
+        run: pip install -r ci/requirements-cuda.txt
       - name: P0 hermetic suite (CPU-only)
         run: python tests/run_p0.py
 
