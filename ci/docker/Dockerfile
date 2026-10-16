@@ -35,12 +35,12 @@ WORKDIR /opt/littlebit
 RUN python3 -m venv --system-site-packages /opt/lbvenv && \
     /opt/lbvenv/bin/pip install --no-cache-dir -r "${REQUIREMENTS_FILE}"
 
-# ci/ scripts and assets stay INSIDE the repo copy — never relocate them.
-# The smoke script resolves the repo root relative to its own in-repo path;
-# relocating it (e.g. to /workspace/scripts) breaks that invariant silently.
-# Baked token cache is ci/assets/wikitext2_tokens.pt, already inside the
-# COPY'd tree; if a volume shadows /workspace the script regenerates tokens
-# from the HF hub (Salesforce/wikitext) instead of dying.
+# ci/ scripts stay INSIDE the repo copy — never relocate them. The smoke
+# script resolves the repo root relative to its own in-repo path; relocating
+# it (e.g. to /workspace/scripts) breaks that invariant silently.
+# The image carries NO dataset artifacts: the smoke token cache lives under
+# /workspace/cache (keyed by tokenizer) and is regenerated from the HF hub
+# (Salesforce/wikitext, wikitext-2-raw-v1) when absent — see ci/scripts.
 ENV MODE=smoke \
     PATH=/opt/lbvenv/bin:$PATH \
     HF_HOME=/workspace/hf \
