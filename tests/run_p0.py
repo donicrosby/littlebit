@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-sys.path.insert(0, "/workspace/littlebit-fork")
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))
 # NOTE: repo import-order landmine: quantization.utils MUST load before quantization.modules.
 import quantization.utils.quant_util  # noqa: F401  (breaks the cycle first)
 from quantization.modules.littlebit import LittleBitLinear

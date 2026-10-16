@@ -1,7 +1,7 @@
 """Regression: (1) modules-first import must work (cycle fix), (2) bf16 layer
 patch + forward must not crash on dtype mismatch (dtype fix). Both failed on upstream."""
 import sys, torch, torch.nn as nn
-sys.path.insert(0, "/workspace/littlebit-fork")
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))
 from quantization.modules.littlebit import LittleBitLinear  # modules FIRST — cycle proof
 from quantization.functions.binary import STEBinary
 
