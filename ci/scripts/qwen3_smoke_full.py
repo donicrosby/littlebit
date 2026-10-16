@@ -80,27 +80,27 @@ from datasets import load_dataset
 # any other HF_MODEL). Cache is keyed by tokenizer identity (family + vocab
 # size); a mismatch regenerates from the HF hub using the model's own
 # tokenizer. SMOKE_TOKENS pins an explicit file for reproducibility runs.
+TOKTAG = f"{os.path.basename(str(tok.name_or_path).rstrip('/'))}:{len(tok)}".replace("/", "_")
 def _token_cache() -> str:
     env = os.environ.get("SMOKE_TOKENS")
     if env:
         return env
-    toktag = f"{os.path.basename(str(tok.name_or_path).rstrip('/'))}:{len(tok)}".replace("/", "_")
     os.makedirs("/workspace/cache", exist_ok=True)
-    return f"/workspace/cache/wikitext2-raw-v1__{toktag}.pt"
+    return f"/workspace/cache/wikitext2-raw-v1__{TOKTAG}.pt"
 CACHE = _token_cache()
 if os.path.exists(CACHE):
     d = torch.load(CACHE)
-    if d.get("tokenizer") == f"{os.path.basename(str(tok.name_or_path).rstrip('/'))}:{len(tok)}":
+    if d.get("tokenizer") == TOKTAG:
         test_ids, train_ids = d["test"], d["train"]
         tlog(f"token cache hit: test {test_ids.numel():,} train {train_ids.numel():,}")
     else:
-        tlog(f"token cache {CACHE} belongs to tokenizer '{d.get('tokenizer')}', not ours — regenerating")
+        tlog(f"token cache {CACHE} belongs to tokenizer '{d.get('tokenizer')}', not '{TOKTAG}' — regenerating")
         os.remove(CACHE)
-else:
+if not os.path.exists(CACHE):
     ds = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1")
     test_ids = torch.tensor(tok("".join(ds["test"]["text"]))["input_ids"], dtype=torch.long)
     train_ids = torch.tensor(tok("".join(ds["train"]["text"]))["input_ids"], dtype=torch.long)
-    torch.save({"test": test_ids, "train": train_ids}, CACHE)
+    torch.save({"test": test_ids, "train": train_ids, "tokenizer": TOKTAG}, CACHE)
     tlog(f"tokenized: test {test_ids.numel():,} train {train_ids.numel():,}")
 
 @torch.no_grad()

@@ -8,9 +8,10 @@
 #   runpod: BASE_IMAGE=runpod/pytorch:1.4.0-cu1281-torch280-ubuntu2404
 #   rocm:   BASE_IMAGE=ubuntu:24.04  (+ AMD wheel index from the lock pins)
 #
-# Local dev: `uv sync --extra cuda` (or --extra rocm). Model downloads at
-# runtime on first use (from_pretrained falls back to the HF hub); the 22MB
-# wikitext token cache is baked in so smoke mode skips datasets-regen.
+# Local dev: `uv sync --extra cuda` (or --extra rocm). The model downloads at
+# runtime on first use (from_pretrained falls back to the HF hub); wikitext-2
+# tokens are fetched from the HF hub and cached under /workspace/cache,
+# keyed by tokenizer — the image ships no dataset artifacts.
 ARG BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
 FROM ${BASE_IMAGE}
 
@@ -34,6 +35,9 @@ WORKDIR /opt/littlebit
 # delta — never reinstalls the runtime stack the base provides.
 RUN python3 -m venv --system-site-packages /opt/lbvenv && \
     /opt/lbvenv/bin/pip install --no-cache-dir -r "${REQUIREMENTS_FILE}"
+
+COPY ci/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # ci/ scripts stay INSIDE the repo copy — never relocate them. The smoke
 # script resolves the repo root relative to its own in-repo path; relocating
