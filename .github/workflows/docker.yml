@@ -80,9 +80,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=tag
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
-            type=sha,enable=${{ github.event_name == 'pull_request' }}
+            type=ref,event=tag,suffix=-${{ matrix.variant }}
+            type=raw,value=latest-${{ matrix.variant }},enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
       - uses: docker/build-push-action@v6
         with:
           context: .
