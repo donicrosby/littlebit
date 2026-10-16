@@ -6,7 +6,7 @@ if [ -f /opt/lbvenv/bin/activate ]; then
   export VIRTUAL_ENV=/opt/lbvenv
   export PATH="$VIRTUAL_ENV/bin:$PATH"
 fi
-cd /workspace/littlebit
+cd /opt/littlebit
 
 echo "=== littlebit container: MODE=${MODE:-unset} HF_MODEL=${HF_MODEL:-unset} MODEL_PATH=${MODEL_PATH:-unset} ==="
 
@@ -15,7 +15,7 @@ case "${MODE}" in
     python tests/run_p0.py
     ;;
   smoke)
-    exec python /workspace/scripts/qwen3_smoke_full.py
+    exec python ci/scripts/qwen3_smoke_full.py
     ;;
   train)
     HF_MODEL="${HF_MODEL:?HF_MODEL must be set for MODE=train}"
