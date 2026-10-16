@@ -13,7 +13,29 @@ sys.stdout.reconfigure(line_buffering=True)
 import torch
 import torch.nn.functional as F
 
-sys.path.insert(0, os.environ.get("LB_REPO", str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent)))
+def _find_repo_root() -> str:
+    """Locate the repo root by marker (quantization/__init__.py), walking up
+    from this file. Works from any checkout layout (in-repo scripts) — and
+    fails loudly instead of silently importing nothing if the layout breaks."""
+    marker = os.path.join("quantization", "__init__.py")
+    here = os.path.dirname(os.path.abspath(__file__))
+    cur = here
+    for _ in range(6):
+        if os.path.isfile(os.path.join(cur, marker)):
+            return cur
+        nxt = os.path.dirname(cur)
+        if nxt == cur:
+            break
+        cur = nxt
+    sys.exit(f"FATAL: repo root (dir containing {marker}) not found above {here}. "
+             f"Container layout is broken — do not work around with env vars; fix the image.")
+REPO = os.environ.get("LB_REPO", "")
+if REPO:
+    if not os.path.isfile(os.path.join(REPO, "quantization", "__init__.py")):
+        sys.exit(f"FATAL: LB_REPO={REPO} does not contain quantization/__init__.py — refusing to guess.")
+else:
+    REPO = _find_repo_root()
+sys.path.insert(0, REPO)
 import quantization.utils.quant_util  # noqa: F401  (repo import-order landmine)
 from quantization.utils.quant_util import apply_littlebit_patch
 from quantization.modules.littlebit import LittleBitLinear
@@ -53,9 +75,22 @@ tok = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # ---------- data: wikitext-2 raw, test for eval / train for QAT ----------
 from datasets import load_dataset
-CACHE = os.environ.get("SMOKE_TOKENS", "/workspace/assets/wikitext2_tokens.pt") \
-    if os.path.exists("/workspace/assets/wikitext2_tokens.pt") \
-    else os.path.join(OUT, "wikitext2_tokens.pt")
+# Token cache precedence: explicit env → /workspace/cache (data volume; the
+# regen target, keeps multi-GB-adjacent artifacts on the persistent mount) →
+# the small 22MB baked copy inside the repo. Nothing large lives in /opt.
+def _token_cache() -> str:
+    env = os.environ.get("SMOKE_TOKENS")
+    if env:
+        return env
+    ws = "/workspace/cache/wikitext2_tokens.pt"
+    if os.path.exists(ws):
+        return ws
+    in_repo = os.path.join(REPO, "ci", "assets", "wikitext2_tokens.pt")
+    if os.path.exists(in_repo):
+        return in_repo
+    os.makedirs(os.path.dirname(ws), exist_ok=True)
+    return ws
+CACHE = _token_cache()
 if os.path.exists(CACHE):
     d = torch.load(CACHE); test_ids, train_ids = d["test"], d["train"]
     tlog(f"token cache hit: test {test_ids.numel():,} train {train_ids.numel():,}")

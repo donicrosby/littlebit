@@ -23,19 +23,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates libstdc++6 libgomp1 python3 python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-COPY . /workspace/littlebit
-WORKDIR /workspace/littlebit
+# App code lives under /opt (FHS: self-contained add-on software), NOT under
+# /workspace — on RunPod /workspace is the conventional volume mountpoint, and
+# an attached volume would shadow code stored there. /workspace holds runtime
+# data only (HF cache, smoke outputs).
+COPY . /opt/littlebit
+WORKDIR /opt/littlebit
 
 # --system-site-packages: the venv sees the base's torch; pip adds only the
 # delta — never reinstalls the runtime stack the base provides.
 RUN python3 -m venv --system-site-packages /opt/lbvenv && \
     /opt/lbvenv/bin/pip install --no-cache-dir -r "${REQUIREMENTS_FILE}"
 
-COPY ci/assets/wikitext2_tokens.pt /workspace/assets/wikitext2_tokens.pt
-COPY ci/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
-COPY ci/scripts /workspace/scripts
-
+# ci/ scripts and assets stay INSIDE the repo copy — never relocate them.
+# The smoke script resolves the repo root relative to its own in-repo path;
+# relocating it (e.g. to /workspace/scripts) breaks that invariant silently.
+# Baked token cache is ci/assets/wikitext2_tokens.pt, already inside the
+# COPY'd tree; if a volume shadows /workspace the script regenerates tokens
+# from the HF hub (Salesforce/wikitext) instead of dying.
 ENV MODE=smoke \
     PATH=/opt/lbvenv/bin:$PATH \
     HF_HOME=/workspace/hf \
