@@ -25,3 +25,9 @@ ckpts/
 scripts/
 .cache/
 meta-llama/
+
+# CI support files ship despite the ML scratch patterns above
+!ci/scripts/
+!ci/scripts/**
+!ci/assets/*.pt
+!ci/entrypoint.sh
