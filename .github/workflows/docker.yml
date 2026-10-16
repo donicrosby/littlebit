@@ -16,12 +16,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Export app requirements from the lock (torch excluded)
+        run: uv export --extra cuda --no-hashes --no-emit-project | grep -vE '^(torch|triton|nvidia-)' > /tmp/reqs-ci.txt
       - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - name: Install app deps (same frozen pins the images use)
-        run: pip install -r ci/requirements-cuda.txt
+      - name: Install app deps (lock pins, CPU torch from above)
+        run: pip install -r /tmp/reqs-ci.txt
       - name: P0 hermetic suite (CPU-only)
         run: python tests/run_p0.py
 
@@ -35,17 +38,36 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Base images provide the torch runtime; we layer only the app delta.
           - variant: cuda
             base: pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
-            reqs: ci/requirements-cuda.txt
+            extra: cuda
+            keep_torch: false
           - variant: runpod
             base: runpod/pytorch:1.4.0-cu1281-torch280-ubuntu2404
-            reqs: ci/requirements-cuda.txt
+            extra: cuda
+            keep_torch: false
+          # ROCm base has no torch; the lock's AMD-index pins install it.
           - variant: rocm
             base: ubuntu:24.04
-            reqs: ci/requirements-rocm.txt
+            extra: rocm
+            keep_torch: true
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Generate variant requirements from uv.lock
+        run: |
+          mkdir -p build
+          if [ "${{ matrix.keep_torch }}" = "true" ]; then
+            { echo "--extra-index-url https://pypi.org/simple/"
+              echo "--extra-index-url https://stable.repo.amd.com/rocm/whl-next/"
+              uv export --extra ${{ matrix.extra }} --no-hashes --no-emit-project
+            } > build/requirements.txt
+          else
+            uv export --extra ${{ matrix.extra }} --no-hashes --no-emit-project \
+              | grep -vE '^(torch|torchvision|triton|nvidia-)' > build/requirements.txt
+          fi
+          wc -l build/requirements.txt
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
@@ -68,7 +90,7 @@ jobs:
           push: ${{ github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
           build-args: |
             BASE_IMAGE=${{ matrix.base }}
-            REQUIREMENTS_FILE=${{ matrix.reqs }}
+            REQUIREMENTS_FILE=build/requirements.txt
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.variant }}

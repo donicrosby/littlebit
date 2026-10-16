@@ -1,0 +1,50 @@
+[project]
+name = "littlebit"
+version = "0.3.0"
+description = "Binarized LLM quantization (LittleBit) — fixed QAT recipe and multi-runtime containers"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = { text = "CC-BY-NC-4.0" }
+dependencies = [
+    "transformers==4.51.3",
+    "datasets==3.4.1",
+    "accelerate>=1.6.0",
+    "safetensors",
+    "numpy==2.2.4",
+    "sentencepiece",
+    "tensorboardX",
+    "pytorch-optimizer>=3.5.0",
+    "GPUtil>=1.4.0",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+# Variant torch stacks. Base-image variants (pytorch/runpod bases) provide
+# torch themselves — CI exports and filters torch out for them; the rocm
+# variant installs torch from AMD's wheel index (see [[tool.uv.index]]).
+cuda = ["torch==2.8.0"]
+rocm = [
+    "torch==2.14.0+rocm10.1.0",
+    "torchvision==0.29.0a0+rocm10.1.0",
+]
+
+[tool.uv]
+# cuda and rocm torches are mutually exclusive by design — one env, one stack.
+conflicts = [
+    [
+        { extra = "cuda" },
+        { extra = "rocm" },
+    ]
+]
+# Exact pins make cross-index resolution unambiguous: torch==2.14.0+rocm10.1.0
+# exists only on AMD's index, everything else only on PyPI. Both are first-party.
+index-strategy = "unsafe-best-match"
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple/"
+default = true
+
+[[tool.uv.index]]
+name = "amd-rocm"
+url = "https://stable.repo.amd.com/rocm/whl-next/"
