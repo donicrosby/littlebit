@@ -8,6 +8,15 @@ if [ -f /opt/lbvenv/bin/activate ]; then
 fi
 cd /opt/littlebit
 
+# Expose SSH when the image ships it (RunPod startSsh/ports 22/tcp map to it).
+# Our ENTRYPOINT replaces the base image's entrypoint, which is what normally
+# starts sshd — without this, direct SSH connects to nothing (connection
+# refused) and checkpoints can't be retrieved before terminate.
+if command -v sshd >/dev/null 2>&1; then
+  mkdir -p /run/sshd
+  /usr/sbin/sshd || echo "WARN: sshd failed to start (continuing without SSH)"
+fi
+
 echo "=== littlebit container: MODE=${MODE:-unset} HF_MODEL=${HF_MODEL:-unset} MODEL_PATH=${MODEL_PATH:-unset} ==="
 
 case "${MODE}" in
