@@ -9,9 +9,16 @@ fi
 cd /opt/littlebit
 
 # Expose SSH when the image ships it (RunPod startSsh/ports 22/tcp map to it).
-# Our ENTRYPOINT replaces the base image's entrypoint, which is what normally
-# starts sshd — without this, direct SSH connects to nothing (connection
-# refused) and checkpoints can't be retrieved before terminate.
+# Our ENTRYPOINT replaces the base image's entrypoint, which does TWO things:
+# injects $PUBLIC_KEY into root's authorized_keys AND starts sshd. Replicate
+# both — starting sshd alone ships a daemon that rejects every key (found the
+# hard way on the 50k-step run: sshd up, auth dead).
+if [ -n "${PUBLIC_KEY:-}" ]; then
+  mkdir -p /root/.ssh && chmod 700 /root/.ssh
+  grep -qF "$PUBLIC_KEY" /root/.ssh/authorized_keys 2>/dev/null || \
+    echo "$PUBLIC_KEY" > /root/.ssh/authorized_keys
+  chmod 600 /root/.ssh/authorized_keys
+fi
 if command -v sshd >/dev/null 2>&1; then
   mkdir -p /run/sshd
   /usr/sbin/sshd || echo "WARN: sshd failed to start (continuing without SSH)"
