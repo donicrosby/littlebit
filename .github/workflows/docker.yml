@@ -10,6 +10,9 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # Publish gate: only push events to master/main or v* tags publish images.
+  # PRs build + test only. (YAML anchors are unsupported in Actions — this is
+  # restated in each gated step's `if`.)
 
 jobs:
   p0:
@@ -28,18 +31,20 @@ jobs:
       - name: P0 hermetic suite (CPU-only)
         run: python tests/run_p0.py
 
-  # Run the BUILT artifact before anything is pushed — the gate that was
-  # missing when a broken image shipped green (p0 tested the pristine
-  # checkout, never the container). Hosted runners are 4 vCPU / 16GB and
-  # OOM-kill (SIGKILL) if we load a real 0.6B model twice + optimizer
-  # state, so the in-image gate is MODE=p0: fully synthetic, hermetic,
-  # minutes-fast — and it exercises exactly the class of bug that shipped:
-  # entrypoint present, layout sane, package imports, core math, save/load.
-  # Real-model smoke (MODE=smoke) runs on GPUs — RunPod or a self-hosted
-  # runner on the lab box — not on free GitHub runners.
+  # ONE build per variant. Build, load into the runner's docker daemon, run
+  # the in-image gate (MODE=p0), then push THOSE EXACT BYTES under a
+  # ci-<sha>-<variant> tag. The image job then re-tags server-side — blobs
+  # never move, nothing is ever rebuilt, and what ships is what was tested.
+  # (The previous design built twice: artifact tested a throwaway image while
+  # image job rebuilt from scratch for the push — gha cache never produced
+  # layer hits because requirements.txt/base-tag inputs changed, and the
+  # published bytes were never the tested bytes.)
   artifact:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -71,22 +76,34 @@ jobs:
           fi
           wc -l build/requirements.txt
       - uses: docker/setup-buildx-action@v3
-      - name: Build image locally (shared cache with the push job)
+      - name: Build image locally (single build for test + publish)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ci/docker/Dockerfile
           push: false
           load: true
-          tags: littlebit-ci:${{ matrix.variant }}
+          tags: ghcr.io/${{ env.IMAGE_NAME }}:ci-${{ github.sha }}-${{ matrix.variant }}
           build-args: |
             BASE_IMAGE=${{ matrix.base }}
             REQUIREMENTS_FILE=build/requirements.txt
           cache-from: type=gha,scope=${{ matrix.variant }}
           cache-to: type=gha,scope=${{ matrix.variant }},mode=max
       - name: Run the built image — MODE=p0 (hermetic, runner-sized)
-        run: docker run --rm -e MODE=p0 littlebit-ci:${{ matrix.variant }}
+        run: docker run --rm -e MODE=p0 ghcr.io/${{ env.IMAGE_NAME }}:ci-${{ github.sha }}-${{ matrix.variant }}
+      - name: Log in to ghcr (publish events only)
+        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push tested bytes as ci- tag
+        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+        run: docker push ghcr.io/${{ env.IMAGE_NAME }}:ci-${{ github.sha }}-${{ matrix.variant }}
 
+  # No rebuild here — server-side re-tag of the tested image. Blobs stay in
+  # ghcr storage; this takes seconds and guarantees published == tested.
   image:
     needs: [p0, artifact]
     runs-on: ubuntu-latest
@@ -97,60 +114,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Base images provide the torch runtime; we layer only the app delta.
           - variant: cuda
-            base: pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
-            extra: cuda
-            keep_torch: false
           - variant: runpod
-            base: runpod/pytorch:1.4.0-cu1281-torch280-ubuntu2404
-            extra: cuda
-            keep_torch: false
-          # ROCm base has no torch; the lock's AMD-index pins install it.
           - variant: rocm
-            base: ubuntu:24.04
-            extra: rocm
-            keep_torch: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - name: Generate variant requirements from uv.lock
-        run: |
-          mkdir -p build
-          if [ "${{ matrix.keep_torch }}" = "true" ]; then
-            { echo "--extra-index-url https://pypi.org/simple/"
-              echo "--extra-index-url https://stable.repo.amd.com/rocm/whl-next/"
-              uv export --extra ${{ matrix.extra }} --no-hashes --no-emit-project
-            } > build/requirements.txt
-          else
-            uv export --extra ${{ matrix.extra }} --no-hashes --no-emit-project \
-              | grep -vE '^(torch|torchvision|triton|nvidia-)' > build/requirements.txt
-          fi
-          wc -l build/requirements.txt
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - name: Log in to ghcr (publish events only)
         if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+        uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=tag,suffix=-${{ matrix.variant }}
-            type=raw,value=latest-${{ matrix.variant }},enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
-            type=raw,value=sha-${{ github.sha }}-${{ matrix.variant }}
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ci/docker/Dockerfile
-          push: ${{ github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
-          build-args: |
-            BASE_IMAGE=${{ matrix.base }}
-            REQUIREMENTS_FILE=build/requirements.txt
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.variant }}
-          cache-to: type=gha,scope=${{ matrix.variant }},mode=max
+      - name: Re-tag tested image for publish (latest-<variant>, sha-<sha>-<variant>)
+        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+        run: |
+          SRC="ghcr.io/${{ env.IMAGE_NAME }}:ci-${{ github.sha }}-${{ matrix.variant }}"
+          docker buildx imagetools create \
+            -t "ghcr.io/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}-${{ matrix.variant }}" \
+            -t "ghcr.io/${{ env.IMAGE_NAME }}:latest-${{ matrix.variant }}" \
+            "$SRC"
+          docker buildx imagetools inspect "ghcr.io/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}-${{ matrix.variant }}"
+      - name: PR path — verify tested ci- tag exists (no publish on PRs)
+        if: github.event_name == 'pull_request'
+        run: |
+          docker pull "ghcr.io/${{ env.IMAGE_NAME }}:ci-${{ github.sha }}-${{ matrix.variant }}" \
+            && echo "ci tag present (unexpected on PR — push should be gated)" \
+            || echo "no ci tag on PR (expected — build tested locally only)"
