@@ -7,6 +7,10 @@ Gates (all must PASS for "works as expected"):
   G4 post_ppl < init_ppl         — QAT recovers real quality
   G5 reload logit delta < 0.1    — main.py save -> hub.py load fidelity (P0 gate)
   G6 measured BPW within ±0.25 of 1.0 — packed bytes match eff_bit formula (P0 gate)
+
+SMOKE_STOP_AT_TEACHER=1 ends training at the first mid-QAT eval whose PPL is
+<= the teacher's (goal reached; remaining gates run on that model). Requires
+SMOKE_EVAL_EVERY>0 — without evals there is nothing to trigger on.
 """
 import os, sys, time, json, argparse, gc, math, random
 sys.stdout.reconfigure(line_buffering=True)
@@ -54,6 +58,7 @@ OUT = os.environ.get("SMOKE_OUT", "/workspace/out")
 GATES_MODE = os.environ.get("GATES", "enforce")  # enforce: exit 1 on fail | report: log only
 CKPT_EVERY = int(os.environ.get("SMOKE_CKPT_EVERY", "0"))   # 0 = only final save
 EVAL_EVERY = int(os.environ.get("SMOKE_EVAL_EVERY", "0"))   # 0 = only pre/post evals
+STOP_AT_TEACHER = os.environ.get("SMOKE_STOP_AT_TEACHER", "0") == "1"  # bail at first eval <= teacher PPL
 USE_COSINE = os.environ.get("SMOKE_COSINE", "0") == "1"
 DEV = "cuda" if torch.cuda.is_available() else "cpu"
 SEED = 42
@@ -217,9 +222,14 @@ for step in range(TRAIN_STEPS):
         tlog(f"  step {step:3d}  loss {loss.item():.5f}  (kd {kl_v:.4f} l2l {mse_v:.5f} lr {lr_now:.2e})")
     if CKPT_EVERY and (step + 1) % CKPT_EVERY == 0 and step < TRAIN_STEPS - 1:
         save_ckpt(f"step{step+1}")
+    ppl_mid = None
     if EVAL_EVERY and (step + 1) % EVAL_EVERY == 0 and step < TRAIN_STEPS - 1:
         ppl_mid = ppl(student, test_ids, f"mid-QAT@{step+1}")
         student.train()
+    if STOP_AT_TEACHER and ppl_mid is not None and ppl_mid <= ppl_teacher:
+        tlog(f"SMOKE_STOP_AT_TEACHER: mid-QAT@{step+1} PPL {ppl_mid:.4f} <= teacher {ppl_teacher:.4f} "
+             f"— target met at step {step+1}/{TRAIN_STEPS}; skipping to post-QAT gates")
+        break
 first20 = sum(losses[:20]) / min(20, len(losses))
 last20 = sum(losses[-20:]) / min(20, len(losses))
 kd_first = sum(kls[:20]) / min(20, len(kls))
