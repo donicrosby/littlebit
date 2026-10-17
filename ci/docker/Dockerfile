@@ -21,7 +21,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # python3 is for bare-ubuntu bases (rocm variant); a harmless no-op on the
 # pytorch bases, which ship their own interpreter and resolve `python3` first.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl ca-certificates libstdc++6 libgomp1 python3 python3-venv \
+    git curl ca-certificates libstdc++6 libgomp1 python3 python3-venv openssh-server \
     && rm -rf /var/lib/apt/lists/*
 
 # App code lives under /opt (FHS: self-contained add-on software), NOT under
